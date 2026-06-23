@@ -24,3 +24,10 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.7);
+  cursor: pointer;
+}
+input[type="date"]::-webkit-inner-spin-button { display: none; }
+input[type="date"] { color-scheme: dark; }

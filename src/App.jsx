@@ -737,7 +737,7 @@ function ConveyorGeneratorForm({ crops, plots, plantings, onPreview }) {
           </select>
         </Field>
         <Field label="Tarikh Mula (petak kosong sahaja)" hint="Petak aktif akan auto-sambung selepas tuai — tarikh ini hanya untuk petak kosong">
-          <input type="text" placeholder="cth: 2025-06-22" className={inputClass} style={inputStyle} value={startDate} onChange={e => { setStartDate(e.target.value); setFormError(null); }} />
+          <input type="date" className={inputClass} style={inputStyle} value={startDate} onChange={e => { setStartDate(e.target.value); setFormError(null); }} />
         </Field>
         <Field label="Jarak Tanam Antara Petak Kosong (hari)" hint="Hanya diguna untuk petak kosong — petak aktif auto-kira sendiri">
           <input type="number" className={inputClass} style={inputStyle} value={interval} onChange={e => setIntervalDays(Math.max(1, Number(e.target.value) || 1))} />
@@ -988,7 +988,7 @@ function LogEntryModal({ planting, crop, plot, onClose, onSave }) {
         <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Rekod Tuaian</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Tarikh Tuai Sebenar">
-            <input type="text" placeholder="yyyy-mm-dd" className={inputClass} style={inputStyle} value={tarikhTuai} onChange={e => setTarikhTuai(e.target.value)} />
+            <input type="date" className={inputClass} style={inputStyle} value={tarikhTuai} onChange={e => setTarikhTuai(e.target.value)} />
           </Field>
           <Field label="Hasil Tuaian (kg)">
             <input type="number" step="0.1" className={inputClass} style={inputStyle} value={hasil} onChange={e => setHasil(e.target.value)} placeholder={`anggaran ${crop?.anggaranHasilSepetak ?? '-'}`} />
