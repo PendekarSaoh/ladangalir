@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.font-display { font-family: 'Fraunces', serif; font-optical-sizing: auto; }
+.font-body    { font-family: 'Inter', sans-serif; }
+
+* { box-sizing: border-box; }
+
+::-webkit-scrollbar { height: 8px; width: 8px; }
+::-webkit-scrollbar-thumb { background: #3A4030; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #8FBC5A;
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
