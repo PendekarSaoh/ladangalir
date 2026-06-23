@@ -16,7 +16,7 @@ function diffDays(a, b) { return Math.round((parseISO(b) - parseISO(a)) / 864000
 function todayISO() { const t = new Date(); return isoOf(makeUTCDate(t.getFullYear(), t.getMonth() + 1, t.getDate())); }
 const MONTHS_MY = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis'];
 function formatDateMY(s) { if (!s) return '-'; const d = parseISO(s); return `${d.getUTCDate()} ${MONTHS_MY[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
-function formatShortMY(s) { const d = parseISO(s); return `${d.getUTCDate()} ${MONTHS_MY[d.getUTCMonth()]}`; }
+function formatShortMY(s) { if (!s) return '-'; const d = parseISO(s); return `${d.getUTCDate()} ${MONTHS_MY[d.getUTCMonth()]}`; }
 
 /* ============================================================ */
 /* ID + storage helpers                                         */
@@ -151,6 +151,27 @@ const ROOT_VARS = {
   '--accent-water': '#5B9AA0',
 };
 
+const GLOBAL_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+.font-display { font-family: 'Fraunces', serif; font-optical-sizing: auto; }
+.font-body { font-family: 'Inter', sans-serif; }
+* { box-sizing: border-box; }
+::-webkit-scrollbar { height: 8px; width: 8px; }
+::-webkit-scrollbar-thumb { background: #3A4030; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #8FBC5A; outline-offset: 1px;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.7);
+  cursor: pointer;
+}
+input[type="date"]::-webkit-inner-spin-button { display: none; }
+input[type="date"] { color-scheme: dark; }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+`;
 
 const inputClass = 'rounded-lg px-3 py-2 text-sm outline-none w-full';
 const inputStyle = { background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)' };
@@ -389,7 +410,9 @@ function SeedCalculator({ onApply }) {
       const kg = +(luasM2 * kadarSemai / 1000).toFixed(4);
       return { kg, info: `${luasM2} m² × ${kadarSemai} g/m² = ${(luasM2 * kadarSemai).toFixed(0)} g = ${kg} kg` };
     } else {
-      const lubang = Math.floor((panjang * 100 / jarakBaris)) * Math.floor((lebar * 100 / jarakPokok));
+      const safeJarakBaris = Math.max(jarakBaris, 1);
+      const safeJarakPokok = Math.max(jarakPokok, 1);
+      const lubang = Math.floor((panjang * 100 / safeJarakBaris)) * Math.floor((lebar * 100 / safeJarakPokok));
       const dengan = Math.ceil(lubang * (1 + lebihan / 100));
       const kg = +(dengan * beratSebiji).toFixed(4);
       return { kg, lubang, dengan, info: `${lubang} lubang + ${lebihan}% lebihan = ${dengan} biji × ${beratSebiji * 1000}g = ${kg} kg` };
@@ -672,13 +695,6 @@ function ConveyorGeneratorForm({ crops, plots, plantings, onPreview }) {
   const [musim, setMusim] = useState(3);
   const [formError, setFormError] = useState(null);
 
-  const plotInfoMap = useMemo(() => {
-    const m = {};
-    plots.forEach(p => { m[p.id] = getPlotInfo(p.id, plantings, today); });
-    return m;
-  }, [plots, plantings, today]);
-
-  // For each plot, calculate when new planting can start
   const plotNextStart = useMemo(() => {
     const m = {};
     plots.forEach(plot => {
@@ -819,7 +835,7 @@ function ConveyorGeneratorForm({ crops, plots, plantings, onPreview }) {
             </div>
             <div>
               <div style={{ color: 'var(--text-secondary)' }}>Petak kosong</div>
-              <div className="font-medium mt-0.5" style={{ color: 'var(--accent-sprout)' }}>{chosenEmpty} petak → mula {formatShortMY(startDate)}</div>
+              <div className="font-medium mt-0.5" style={{ color: 'var(--accent-sprout)' }}>{chosenEmpty} petak → mula {startDate ? formatShortMY(startDate) : '-'}</div>
             </div>
             <div>
               <div style={{ color: 'var(--text-secondary)' }}>Petak aktif</div>
@@ -1009,6 +1025,11 @@ function LogEntryModal({ planting, crop, plot, onClose, onSave }) {
   );
 }
 
+const FILTER_TABS = [
+  { key: 'semua', label: 'Semua' },
+  ...Object.entries(STATUS_META).map(([key, meta]) => ({ key, label: meta.label, color: meta.color })),
+];
+
 function LogView({ crops, plots, plantings, onUpdateRecord, onDeletePlanting }) {
   const today = todayISO();
   const [editingId, setEditingId] = useState(null);
@@ -1028,11 +1049,6 @@ function LogView({ crops, plots, plantings, onUpdateRecord, onDeletePlanting }) 
     });
     return counts;
   }, [plantings, today]);
-
-  const FILTER_TABS = [
-    { key: 'semua', label: 'Semua' },
-    ...Object.entries(STATUS_META).map(([key, meta]) => ({ key, label: meta.label, color: meta.color })),
-  ];
 
   const list = useMemo(() => {
     return plantings
@@ -1061,7 +1077,7 @@ function LogView({ crops, plots, plantings, onUpdateRecord, onDeletePlanting }) 
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
                 style={{
                   background: active ? (color || 'var(--accent-sprout)') : hexToRgba(color || '#8FBC5A', 0.1),
-                  color: active ? (key === 'semua' ? '#1C2118' : '#1C2118') : (color || 'var(--text-secondary)'),
+                  color: active ? '#1C2118' : (color || 'var(--text-secondary)'),
                   border: `1px solid ${active ? (color || 'var(--accent-sprout)') : hexToRgba(color || '#8FBC5A', 0.3)}`,
                 }}
               >
@@ -1230,9 +1246,9 @@ function DashboardView({ crops, plots, plantings }) {
   const withStatus = useMemo(() => plantings.map(p => ({ ...p, status: getPlantingStatus(p, today) })), [plantings, today]);
 
   const aktifCount = withStatus.filter(p => ['sedang_tumbuh', 'sedia_tuai', 'lewat'].includes(p.status)).length;
-  const plotKosong = plots.filter(pl => getPlotInfo(pl.id, plantings, today).status === 'kosong').length;
+  const plotKosong = useMemo(() => plots.filter(pl => getPlotInfo(pl.id, plantings, today).status === 'kosong').length, [plots, plantings, today]);
   const upcoming7 = withStatus
-    .filter(p => p.status !== 'dituai' && diffDays(today, p.tarikhTuaianDijangka) >= 0 && diffDays(today, p.tarikhTuaianDijangka) <= 7)
+    .filter(p => p.status !== 'dituai' && diffDays(today, p.tarikhTuaianDijangka) >= -3 && diffDays(today, p.tarikhTuaianDijangka) <= 7)
     .sort((a, b) => (a.tarikhTuaianDijangka < b.tarikhTuaianDijangka ? -1 : 1));
   const lewatList = withStatus.filter(p => p.status === 'lewat');
 
@@ -1332,17 +1348,22 @@ export default function App() {
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    const c = safeGet('farm-crops'), p = safeGet('farm-plots'), pl = safeGet('farm-plantings');
-    const loadedCrops = c ? JSON.parse(c) : DEFAULT_CROPS;
-    const loadedPlots = p ? JSON.parse(p) : generateDefaultPlots(24);
-    const loadedPlantings = pl ? JSON.parse(pl) : [];
-    setCrops(loadedCrops);
-    setPlots(loadedPlots);
-    setPlantings(loadedPlantings);
-    setLoading(false);
-    if (!c) safeSet('farm-crops', loadedCrops);
-    if (!p) safeSet('farm-plots', loadedPlots);
-    if (!pl) safeSet('farm-plantings', loadedPlantings);
+    let cancelled = false;
+    (()  => {
+      const c = safeGet('farm-crops'), p = safeGet('farm-plots'), pl = safeGet('farm-plantings');
+      const loadedCrops = c ? JSON.parse(c) : DEFAULT_CROPS;
+      const loadedPlots = p ? JSON.parse(p) : generateDefaultPlots(24);
+      const loadedPlantings = pl ? JSON.parse(pl) : [];
+      if (cancelled) return;
+      setCrops(loadedCrops);
+      setPlots(loadedPlots);
+      setPlantings(loadedPlantings);
+      setLoading(false);
+      if (!c) safeSet('farm-crops', loadedCrops);
+      if (!p) safeSet('farm-plots', loadedPlots);
+      if (!pl) safeSet('farm-plantings', loadedPlantings);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -1379,7 +1400,7 @@ export default function App() {
     notify('Rekod disimpan.');
   }
   function handleDeletePlanting(id) { updatePlantings(plantings.filter(p => p.id !== id)); }
-  async function handleResetAll() {
+  function handleResetAll() {
     const freshCrops = DEFAULT_CROPS;
     const freshPlots = generateDefaultPlots(24);
     setCrops(freshCrops); setPlots(freshPlots); setPlantings([]);
