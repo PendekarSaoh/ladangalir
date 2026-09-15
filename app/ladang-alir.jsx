@@ -6,6 +6,7 @@ import { buildConveyorSchedule as calculateConveyor } from '../lib/conveyor-sche
 import { basicDates, buildBasicSchedule } from '../lib/basic-schedule';
 import { buildProductionSchedule } from '../lib/production-schedule';
 import { findScheduleOverlaps, canSaveSchedule, layoutTimelineLanes } from '../lib/schedule-overlaps';
+import { parseRestoreFile } from '../lib/restore';
 import {
   LayoutDashboard, Sprout, LayoutGrid, Repeat, ClipboardList, BarChart3,
   Plus, Pencil, Trash2, X, Check, Droplets, Wheat, AlertTriangle,
@@ -192,14 +193,15 @@ function PrimaryButton({ children, onClick, type = 'button', disabled }) {
   );
 }
 
-function SecondaryButton({ children, onClick, type = 'button', size = 'md' }) {
+function SecondaryButton({ children, onClick, type = 'button', size = 'md', disabled }) {
   const pad = size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-2 text-sm';
   return (
     <button
       type={type}
       onClick={onClick}
+      disabled={disabled}
       className={`inline-flex items-center gap-1.5 rounded-lg font-medium ${pad}`}
-      style={{ background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+      style={{ background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border)', opacity: disabled ? 0.5 : 1 }}
     >
       {children}
     </button>
@@ -575,9 +577,16 @@ function PlotsView({ crops, plots, plantings, canDeletePlotIds, onAddPlots, onRe
                 {renamingId === plot.id ? (
                   <input
                     autoFocus
+                    maxLength={100}
                     value={renameValue}
                     onChange={e => setRenameValue(e.target.value)}
-                    onBlur={async () => { const result = await onRenamePlot(plot.id, renameValue.trim() || plot.nama, renameOriginal.current); if (result.ok) setRenamingId(null); }}
+                    onBlur={async () => {
+                      const next = renameValue.trim();
+                      // An unchanged or empty name is not a save; empty is rejected by validation anyway.
+                      if (!next || next === plot.nama) { setRenamingId(null); return; }
+                      const result = await onRenamePlot(plot.id, next, renameOriginal.current);
+                      if (result.ok) setRenamingId(null);
+                    }}
                     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                     className={inputClass}
                     style={{ ...inputStyle, padding: '2px 6px', fontSize: '13px' }}
@@ -1285,10 +1294,10 @@ function LogEntryModal({ planting, crop, plot, onClose, onSave }) {
           {planting.tarikhTamatDijangka && crop?.jenisTuaian === 'berkali' ? ` • Tamat musim ${formatDateMY(planting.tarikhTamatDijangka)}` : ''}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Benih Digunakan (kg)"><input type="number" step="0.001" className={inputClass} style={inputStyle} value={benih} onChange={e => setBenih(e.target.value)} /></Field>
-          <Field label="Baja Digunakan (kg)"><input type="number" step="0.01" className={inputClass} style={inputStyle} value={baja} onChange={e => setBaja(e.target.value)} /></Field>
-          <Field label="Air Digunakan (liter, keseluruhan kitaran)"><input type="number" step="1" className={inputClass} style={inputStyle} value={air} onChange={e => setAir(e.target.value)} /></Field>
-          <Field label="Kos Sebenar (RM)"><input type="number" step="0.01" className={inputClass} style={inputStyle} value={kos} onChange={e => setKos(e.target.value)} /></Field>
+          <Field label="Benih Digunakan (kg)"><input type="number" min="0" step="0.001" className={inputClass} style={inputStyle} value={benih} onChange={e => setBenih(e.target.value)} /></Field>
+          <Field label="Baja Digunakan (kg)"><input type="number" min="0" step="0.01" className={inputClass} style={inputStyle} value={baja} onChange={e => setBaja(e.target.value)} /></Field>
+          <Field label="Air Digunakan (liter, keseluruhan kitaran)"><input type="number" min="0" step="1" className={inputClass} style={inputStyle} value={air} onChange={e => setAir(e.target.value)} /></Field>
+          <Field label="Kos Sebenar (RM)"><input type="number" min="0" step="0.01" className={inputClass} style={inputStyle} value={kos} onChange={e => setKos(e.target.value)} /></Field>
         </div>
         <div style={{ height: 1, background: 'var(--border)' }} />
         <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Rekod Tuaian</p>
@@ -1297,10 +1306,10 @@ function LogEntryModal({ planting, crop, plot, onClose, onSave }) {
             <input type="date" className={inputClass} style={inputStyle} value={tarikhTuai} onChange={e => setTarikhTuai(e.target.value)} />
           </Field>
           <Field label={crop?.jenisTuaian === 'berkali' ? 'Jumlah Hasil Musim (kg)' : 'Hasil Tuaian (kg)'}>
-            <input type="number" step="0.1" className={inputClass} style={inputStyle} value={hasil} onChange={e => setHasil(e.target.value)} placeholder={`anggaran ${crop?.anggaranHasilSepetak ?? '-'}`} />
+            <input type="number" min="0" step="0.1" className={inputClass} style={inputStyle} value={hasil} onChange={e => setHasil(e.target.value)} placeholder={`anggaran ${crop?.anggaranHasilSepetak ?? '-'}`} />
           </Field>
           <Field label="Harga Jual (RM/kg)">
-            <input type="number" step="0.1" className={inputClass} style={inputStyle} value={hargaJual} onChange={e => setHargaJual(e.target.value)} />
+            <input type="number" min="0" step="0.1" className={inputClass} style={inputStyle} value={hargaJual} onChange={e => setHargaJual(e.target.value)} />
           </Field>
         </div>
         <Field label="Catatan">
@@ -1573,6 +1582,75 @@ function ResetButton({ onReset }) {
 }
 
 /* ============================================================ */
+/* Pemulihan dari fail                                             */
+/* ============================================================ */
+function countLine(counts) {
+  return `${counts.crops} tanaman, ${counts.plots} petak, ${counts.plantings} penanaman (${counts.logged} ada rekod)`;
+}
+function RestoreModal({ current, onBackup, onRestore, onClose }) {
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const [backedUp, setBackedUp] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const busyRef = React.useRef(false);
+
+  async function pick(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError(''); setBackedUp(false); setConfirmed(false); setPreview(null);
+    try {
+      if (file.size > 8 * 1024 * 1024) throw new Error('Fail itu melebihi 8 MB. Semak fail yang betul.');
+      setPreview({ ...parseRestoreFile(await file.text()), fileName: file.name });
+    } catch (parseError) { setError(parseError.message); }
+  }
+  async function backup() {
+    if (await onBackup()) setBackedUp(true);
+  }
+  async function submit() {
+    if (!preview || !backedUp || !confirmed || busyRef.current) return;
+    busyRef.current = true; setBusy(true); setError('');
+    try {
+      const result = await onRestore(preview.data);
+      if (!result.ok) { setConfirmed(false); setError(result.error); return; }
+      onClose();
+    } finally { busyRef.current = false; setBusy(false); }
+  }
+
+  return (
+    <Modal title="Pulihkan Dari Fail" onClose={() => { if (!busy) onClose(); }} wide>
+      <div className="flex flex-col gap-4">
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          Pilih fail sandaran yang dimuat turun dari app ini. Pemulihan <strong style={{ color: 'var(--text-primary)' }}>menggantikan seluruh data kebun</strong> dengan isi fail itu.
+        </p>
+        <Field label="Fail sandaran (.json)">
+          <input type="file" accept="application/json,.json" disabled={busy} onChange={pick} className={inputClass} style={inputStyle} />
+        </Field>
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--accent-clay)' }}>{error}</p>}
+        {preview && <>
+          <div className="rounded-lg px-3 py-2 text-sm flex flex-col gap-1" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+            <span>Dalam fail <strong>{preview.fileName}</strong> ({preview.source}): {countLine(preview.counts)}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Data sekarang: {countLine(current)}</span>
+          </div>
+          {preview.flagged.length > 0 && <p role="status" className="text-sm" style={{ color: 'var(--accent-harvest)' }}>
+            {preview.flagged.length} rekod lama menyalahi peraturan baharu, contoh {preview.flagged[0]}. Semua masih akan dipulihkan; betulkan melalui menu Log bila sempat.
+          </p>}
+          <SecondaryButton onClick={backup} disabled={busy}>{backedUp ? 'Sandaran semasa sudah dimuat turun' : 'Muat Turun Sandaran Semasa Dahulu'}</SecondaryButton>
+          <label className="flex gap-2.5 items-start text-sm" style={{ color: 'var(--text-primary)' }}>
+            <input type="checkbox" checked={confirmed} disabled={busy || !backedUp} onChange={e => setConfirmed(e.target.checked)} />
+            <span>Gantikan data kebun sekarang dengan isi fail ini.</span>
+          </label>
+        </>}
+        <div className="flex justify-end gap-2">
+          <SecondaryButton onClick={onClose} disabled={busy}>Batal</SecondaryButton>
+          <PrimaryButton type="button" onClick={submit} disabled={busy || !preview || !backedUp || !confirmed}>{busy ? 'Memulihkan…' : 'Pulihkan Data'}</PrimaryButton>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============================================================ */
 /* App                                                             */
 /* ============================================================ */
 const NAV_ITEMS = [
@@ -1599,6 +1677,7 @@ export default function App({ remoteStore = null, onSignOut }) {
   const [notice, setNotice] = useState(null);
 
   const [loadError, setLoadError] = useState('');
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [writeError, setWriteError] = useState('');
   const [syncError, setSyncError] = useState('');
   const [lastSync, setLastSync] = useState(null);
@@ -1722,7 +1801,16 @@ export default function App({ remoteStore = null, onSignOut }) {
       const url = URL.createObjectURL(new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' }));
       const link = document.createElement('a'); link.href = url; link.download = 'ladang-alir-pemulihan.json'; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch { setWriteError(remoteStore ? 'Sandaran tidak dapat dimuat turun. Semak sambungan dan cuba lagi.' : 'Salinan tidak dapat dibaca. Benarkan akses simpanan pelayar dahulu; data tidak diubah.'); }
+      return true;
+    } catch {
+      setWriteError(remoteStore ? 'Sandaran tidak dapat dimuat turun. Semak sambungan dan cuba lagi.' : 'Salinan tidak dapat dibaca. Benarkan akses simpanan pelayar dahulu; data tidak diubah.');
+      return false;
+    }
+  }
+  // The file is the whole document, so this replaces everything on purpose. The store still
+  // enforces the current revision, so a stale file cannot overwrite newer work.
+  function handleRestoreFile(data) {
+    return commit(() => structuredClone(data), 'Data kebun dipulihkan daripada fail.', { kind: 'restore' });
   }
 
   const canDeletePlotIds = useMemo(() => new Set(plots.filter(pl => !plantings.some(p => p.plotId === pl.id)).map(p => p.id)), [plots, plantings]);
@@ -1770,7 +1858,9 @@ export default function App({ remoteStore = null, onSignOut }) {
             </button>
           ))}
           <div className="mt-auto pt-4">
-            <p className="px-3 pb-2 text-xs" style={{color: 'var(--text-secondary)'}}>{remoteStore ? 'Data kebun disimpan di Supabase.' : 'Data disimpan pada pelayar ini.'}</p><ResetButton onReset={handleResetAll} />
+            <p className="px-3 pb-2 text-xs" style={{color: 'var(--text-secondary)'}}>{remoteStore ? 'Data kebun disimpan di Supabase.' : 'Data disimpan pada pelayar ini.'}</p>
+            <button onClick={() => setRestoreOpen(true)} className="w-full text-left px-3 py-2 rounded-lg text-xs" style={{ color: 'var(--text-secondary)', border: '1px solid transparent' }}>Pulihkan Dari Fail</button>
+            <ResetButton onReset={handleResetAll} />
           </div>
         </aside>
 
@@ -1811,6 +1901,8 @@ export default function App({ remoteStore = null, onSignOut }) {
             </button>
           ))}
         </nav>
+
+        {restoreOpen && <RestoreModal current={{ crops, plots, plantings }} onBackup={downloadRecovery} onRestore={handleRestoreFile} onClose={() => setRestoreOpen(false)} />}
       </div>
     </div>
   );

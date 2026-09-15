@@ -71,7 +71,8 @@ replaces an existing farm. If an empty farm was accidentally created on another
 device first, stop and arrange a reviewed import; do not overwrite cloud data.
 Changing domain does not carry browser storage with it, so import before moving
 the app to a different origin. The first migration UI reads the original browser
-storage; uploading an exported backup is not implemented in this version.
+storage, and it also accepts a downloaded backup file, so a farm can be set up on
+a new origin from the file instead.
 
 The app refreshes cloud data every 30 seconds while visible, on focus/online,
 and before each write. Network/auth failures preserve forms and report that saving
@@ -80,9 +81,12 @@ retained pre-migration copy once cloud mode is enabled.
 
 ## 5. Backups and checks
 
-The app offers a manual JSON download of current cloud data. Automatic off-server
-backups and a verified restore process must be configured separately; this code
-does not claim to provide them. Never switch cloud mode off to work around an outage:
+The app offers a manual JSON download of current cloud data, and `Pulihkan Dari
+Fail` reads such a file back: pick the file, review the record counts against the
+current farm, download the current data first, then confirm. A restore replaces
+the whole document and still requires the current server revision, so a stale file
+cannot overwrite newer work. Automatic off-server backups still have to be
+configured separately. Never switch cloud mode off to work around an outage:
 that would re-open the old browser copy, not the latest cloud data.
 
 Run `node --test lib/*.test.js` before activation. These cover the API and client
