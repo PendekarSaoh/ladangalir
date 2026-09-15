@@ -11,6 +11,7 @@ import {
   LayoutDashboard, Sprout, LayoutGrid, Repeat, ClipboardList, BarChart3,
   Plus, Pencil, Trash2, X, Check, Droplets, Wheat, AlertTriangle,
   Wallet, TrendingUp, Leaf, Package, Loader2, CalendarDays, Upload,
+  ChevronRight,
 } from 'lucide-react';
 
 /* ============================================================ */
@@ -146,6 +147,10 @@ const GLOBAL_CSS = `
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid #8FBC5A; outline-offset: 1px;
 }
+.row-link { transition: background 120ms ease; }
+.row-link:hover { background: rgba(143, 188, 90, 0.1); }
+.bar-link { transition: filter 120ms ease; }
+.bar-link:hover { filter: brightness(1.25); }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
@@ -288,7 +293,7 @@ function OverlapConfirmation({ warnings, confirmed, onChange, disabled }) {
 /* ============================================================ */
 /* Conveyor timeline — the signature visual                      */
 /* ============================================================ */
-function ConveyorTimeline({ plots, plantings, crops, rangeStart, rangeDays = 90 }) {
+function ConveyorTimeline({ plots, plantings, crops, rangeStart, rangeDays = 90, onOpenLog }) {
   const today = todayISO();
   const cropMap = useMemo(() => Object.fromEntries(crops.map(c => [c.id, c])), [crops]);
   const rangeEnd = addDays(rangeStart, rangeDays);
@@ -359,16 +364,18 @@ function ConveyorTimeline({ plots, plantings, crops, rangeStart, rangeDays = 90 
                   const left = startOffset * pxPerDay;
                   const width = Math.max((endOffset - startOffset) * pxPerDay, 6);
                   return (
-                    <div
+                    <button
                       key={p.id}
+                      type="button"
+                      onClick={() => onOpenLog?.(p.id)}
                       title={`${crop ? crop.nama : '?'} - tanam ${formatDateMY(p.tarikhTanam)}, tuaian pertama ${formatDateMY(p.tarikhTuaianDijangka)}, petak tersedia ${formatDateMY(displayEnd)}`}
-                      style={{ position: 'absolute', left, width, top: 9 + lane * 34, height: 26, background: hexToRgba(meta.color, 0.22), border: `1px solid ${meta.color}`, borderRadius: 999 }}
-                      className="flex items-center px-2 overflow-hidden"
+                      style={{ position: 'absolute', left, width, top: 9 + lane * 34, height: 26, background: hexToRgba(meta.color, 0.22), border: `1px solid ${meta.color}`, borderRadius: 999, cursor: 'pointer' }}
+                      className="bar-link flex items-center px-2 overflow-hidden"
                     >
                       <span style={{ color: meta.color, fontSize: '10px', fontWeight: 500 }} className="truncate">
                         {crop ? crop.nama : '?'}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -1132,7 +1139,7 @@ function ConveyorGeneratorForm({ crops, plots, plantings, onPreview, onChange, d
   );
 }
 
-function ConveyorView({ crops, plots, plantings, onCommitBatch, onDeleteBatch, notify }) {
+function ConveyorView({ crops, plots, plantings, onCommitBatch, onDeleteBatch, notify, onOpenLog }) {
   const [showForm, setShowForm] = useState(plantings.length === 0);
   const [preview, setPreview] = useState(null);
   const [overlapConfirmed, setOverlapConfirmed] = useState(false);
@@ -1241,7 +1248,7 @@ function ConveyorView({ crops, plots, plantings, onCommitBatch, onDeleteBatch, n
         </div>
       )}
 
-      <ConveyorTimeline plots={plots} plantings={plantings} crops={crops} rangeStart={today} rangeDays={90} />
+      <ConveyorTimeline plots={plots} plantings={plantings} crops={crops} rangeStart={today} rangeDays={90} onOpenLog={onOpenLog} />
 
       {batches.length > 0 && (
         <div className="flex flex-col gap-2">
@@ -1339,10 +1346,17 @@ function LogEntryModal({ planting, crop, plot, onClose, onSave }) {
   );
 }
 
-function LogView({ crops, plots, plantings, onUpdateRecord, onDeletePlanting }) {
+function LogView({ crops, plots, plantings, onUpdateRecord, onDeletePlanting, initialFocus = null }) {
   const today = todayISO();
-  const [editingId, setEditingId] = useState(null);
-  const [filter, setFilter] = useState('aktif');
+  // Isyarat dari Papan Pemuka atau rail masa dibaca sekali, masa komponen ini dipasang
+  // (App beri `key` baharu setiap kali isyarat berubah, jadi mount bermakna pandangan baharu).
+  // Menetapkan state dari prop semasa mount elak keperluan untuk efek yang menulis state.
+  const [editingId, setEditingId] = useState(() => initialFocus?.id || null);
+  const [filter, setFilter] = useState(() => {
+    if (initialFocus?.filter) return initialFocus.filter;
+    const target = initialFocus?.id ? plantings.find(p => p.id === initialFocus.id) : null;
+    return target && getPlantingStatus(target, today) === 'dituai' ? 'semua' : 'aktif';
+  });
 
   const cropMap = useMemo(() => Object.fromEntries(crops.map(c => [c.id, c])), [crops]);
   const plotMap = useMemo(() => Object.fromEntries(plots.map(p => [p.id, p])), [plots]);
@@ -1506,7 +1520,7 @@ function ReportsView({ crops, plantings }) {
 /* ============================================================ */
 /* Papan Pemuka (dashboard)                                       */
 /* ============================================================ */
-function DashboardView({ crops, plots, plantings }) {
+function DashboardView({ crops, plots, plantings, onOpenLog, onOpenLogAll }) {
   const today = todayISO();
   const cropMap = useMemo(() => Object.fromEntries(crops.map(c => [c.id, c])), [crops]);
   const plotMap = useMemo(() => Object.fromEntries(plots.map(p => [p.id, p])), [plots]);
@@ -1547,10 +1561,17 @@ function DashboardView({ crops, plots, plantings }) {
       </div>
 
       {lewatList.length > 0 && (
-        <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: hexToRgba('#C1623D', 0.1), border: '1px solid var(--accent-clay)' }}>
-          <AlertTriangle size={18} style={{ color: 'var(--accent-clay)' }} />
+        <button
+          type="button"
+          onClick={() => onOpenLogAll?.()}
+          className="row-link rounded-xl p-3 flex w-full items-center gap-3 text-left"
+          style={{ background: hexToRgba('#C1623D', 0.1), border: '1px solid var(--accent-clay)', cursor: 'pointer' }}
+          aria-label="Buka Log Operasi untuk semua penanaman"
+        >
+          <AlertTriangle size={18} style={{ color: 'var(--accent-clay)', flexShrink: 0 }} />
           <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{lewatList.length} penanaman sudah lewat dituai. Semak di Log Operasi.</p>
-        </div>
+          <ChevronRight size={16} style={{ color: 'var(--accent-clay)', marginLeft: 'auto', flexShrink: 0 }} />
+        </button>
       )}
 
       <div className="rounded-xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
@@ -1560,16 +1581,27 @@ function DashboardView({ crops, plots, plantings }) {
         ) : (
           <div className="flex flex-col gap-2">
             {upcoming7.map(p => (
-              <div key={p.id} className="flex items-center justify-between text-sm py-1.5" style={{ borderBottom: '1px solid var(--border)' }}>
-                <span style={{ color: 'var(--text-primary)' }}>{cropMap[p.cropId]?.nama} • {plotMap[p.plotId]?.nama}</span>
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onOpenLog?.(p.id)}
+                className="row-link flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm"
+                style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                title="Buka log penanaman ini"
+                aria-label={`Buka log ${cropMap[p.cropId]?.nama || 'tanaman'} di ${plotMap[p.plotId]?.nama || 'petak'}`}
+              >
+                <span className="flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                  {cropMap[p.cropId]?.nama} • {plotMap[p.plotId]?.nama}
+                  <ChevronRight size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                </span>
                 <Badge color={STATUS_META[p.status].color}>{formatDateMY(p.tarikhTuaianDijangka)}</Badge>
-              </div>
+              </button>
             ))}
           </div>
         )}
       </div>
 
-      <ConveyorTimeline plots={plots} plantings={plantings} crops={crops} rangeStart={today} rangeDays={90} />
+      <ConveyorTimeline plots={plots} plantings={plantings} crops={crops} rangeStart={today} rangeDays={90} onOpenLog={onOpenLog} />
     </div>
   );
 }
@@ -1688,6 +1720,11 @@ export default function App({ remoteStore = null, onSignOut }) {
   const [plots, setPlots] = useState([]);
   const [plantings, setPlantings] = useState([]);
   const [tab, setTab] = useState('dashboard');
+  // Isyarat "buka log ini" dari Papan Pemuka / rail masa. { id } untuk satu penanaman,
+  // { filter } untuk buka Log Operasi dengan tapisan tertentu. `logKey` memaksa LogView
+  // dipasang semula setiap kali isyarat berubah, walaupun id penanamannya sama.
+  const [logFocus, setLogFocus] = useState(null);
+  const [logKey, setLogKey] = useState(0);
   const [notice, setNotice] = useState(null);
 
   const [loadError, setLoadError] = useState('');
@@ -1740,6 +1777,13 @@ export default function App({ remoteStore = null, onSignOut }) {
   }, [notice]);
 
   function notify(msg) { setNotice(msg); setWriteError(''); }
+  function openLogFor(plantingId) { setLogFocus({ id: plantingId }); setLogKey(k => k + 1); setTab('log'); }
+  function openLogAll() { setLogFocus({ filter: 'semua' }); setLogKey(k => k + 1); setTab('log'); }
+  // Bila pengguna tekan menu sendiri, isyarat lama dibuang supaya Log Operasi dibuka bersih.
+  function selectTab(key) {
+    if (key !== 'log') { setLogFocus(null); setLogKey(k => k + 1); }
+    setTab(key);
+  }
   async function commit(change, message, options) {
     try {
       if (!storeRef.current) throw new Error('Simpanan belum tersedia. Muat semula halaman.');
@@ -1863,7 +1907,7 @@ export default function App({ remoteStore = null, onSignOut }) {
           {NAV_ITEMS.map(item => (
             <button
               key={item.key}
-              onClick={() => setTab(item.key)}
+              onClick={() => selectTab(item.key)}
               className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-left"
               style={{ background: tab === item.key ? 'var(--surface)' : 'transparent', color: tab === item.key ? 'var(--text-primary)' : 'var(--text-secondary)' }}
             >
@@ -1897,19 +1941,19 @@ export default function App({ remoteStore = null, onSignOut }) {
               {notice}
             </div>
           )}
-          {tab === 'dashboard' && <DashboardView crops={crops} plots={plots} plantings={plantings} />}
+          {tab === 'dashboard' && <DashboardView crops={crops} plots={plots} plantings={plantings} onOpenLog={openLogFor} onOpenLogAll={openLogAll} />}
           {tab === 'basic' && <BasicScheduleView crops={crops} plots={plots} plantings={plantings} onSave={handleSaveBatch} onDeleteBatch={handleDeleteBatch} notify={notify} />}
           {tab === 'production' && <TargetHarvestView crops={crops} plots={plots} plantings={plantings} onCommitBatch={handleSaveBatch} onDeleteBatch={handleDeleteBatch} notify={notify} />}
-          {tab === 'conveyor' && <ConveyorView crops={crops} plots={plots} plantings={plantings} onCommitBatch={handleSaveBatch} onDeleteBatch={handleDeleteBatch} notify={notify} />}
+          {tab === 'conveyor' && <ConveyorView crops={crops} plots={plots} plantings={plantings} onCommitBatch={handleSaveBatch} onDeleteBatch={handleDeleteBatch} notify={notify} onOpenLog={openLogFor} />}
           {tab === 'crops' && <CropsView crops={crops} plantings={plantings} onSave={handleSaveCrop} onDelete={handleDeleteCrop} />}
           {tab === 'plots' && <PlotsView crops={crops} plots={plots} plantings={plantings} canDeletePlotIds={canDeletePlotIds} onAddPlots={handleAddPlots} onRenamePlot={handleRenamePlot} onDeletePlot={handleDeletePlot} />}
-          {tab === 'log' && <LogView crops={crops} plots={plots} plantings={plantings} onUpdateRecord={handleUpdateRecord} onDeletePlanting={handleDeletePlanting} />}
+          {tab === 'log' && <LogView key={`log-${logKey}`} crops={crops} plots={plots} plantings={plantings} onUpdateRecord={handleUpdateRecord} onDeletePlanting={handleDeletePlanting} initialFocus={logFocus} />}
           {tab === 'reports' && <ReportsView crops={crops} plantings={plantings} />}
         </main>
 
         <nav className="flex md:hidden fixed bottom-0 left-0 right-0 justify-between overflow-x-auto py-2 z-30" style={{ background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
           {NAV_ITEMS.map(item => (
-            <button key={item.key} onClick={() => setTab(item.key)} className="flex shrink-0 flex-col items-center gap-0.5 px-2 py-1">
+            <button key={item.key} onClick={() => selectTab(item.key)} className="flex shrink-0 flex-col items-center gap-0.5 px-2 py-1">
               <item.icon size={18} style={{ color: tab === item.key ? 'var(--accent-sprout)' : 'var(--text-secondary)' }} />
               <span className="text-xs" style={{ color: tab === item.key ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{item.mobileLabel || item.label.split(' ')[0]}</span>
             </button>
