@@ -5,6 +5,8 @@ import LadangAlir, { initialFarmData } from './ladang-alir';
 import { createFarmStore, STORE_KEY, LEGACY_KEYS } from '../lib/farm-store';
 import { stableStringify } from '../lib/stable-json';
 import { createSupabaseStore } from '../lib/supabase-store';
+import { parseRestoreFile } from '../lib/restore';
+import { publicConfig } from '../lib/public-config';
 
 const panel = { background: '#262C20', border: '1px solid #3A4030', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540 };
 const input = { width: '100%', marginTop: 6, background: '#1C2118', border: '1px solid #5C6555', borderRadius: 8, padding: 12, color: '#EDE8DB', fontSize: 16 };
@@ -41,8 +43,10 @@ function SignIn({ client, onSignIn }) {
 function ImportFarm({ store, onDone, onSignOut }) {
   const [candidate, setCandidate] = useState(null), [error, setError] = useState('');
   const [cloudExists, setCloudExists] = useState(false);
+  // Set only when the candidate came from a chosen file instead of this browser's storage.
+  const [fileInfo, setFileInfo] = useState(null);
   const [ready, setReady] = useState(false), [backedUp, setBackedUp] = useState(false), [confirmed, setConfirmed] = useState(false), [busy, setBusy] = useState(false);
-  const lock = useRef(false), local = useRef(null);
+  const lock = useRef(false), local = useRef(null), filePicker = useRef(null);
   useEffect(() => {
     try {
       const storage = window.localStorage;
@@ -55,14 +59,27 @@ function ImportFarm({ store, onDone, onSignOut }) {
     try { download(local.current.recovery()); setBackedUp(true); }
     catch { setError('Salinan data pelayar tidak dapat dimuat turun. Data asal tidak diubah.'); }
   }
+  // A file backup needs no browser-storage backup step: the file itself is the copy.
+  async function pickFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError('');
+    try {
+      if (file.size > 8 * 1024 * 1024) throw new Error('Fail itu melebihi 8 MB. Semak fail yang betul.');
+      const parsed = parseRestoreFile(await file.text());
+      setCandidate(parsed.data);
+      setFileInfo({ fileName: file.name, source: parsed.source, flagged: parsed.flagged });
+      setConfirmed(false);
+    } catch (parseError) { setError(parseError.message); }
+  }
   async function migrate() {
-    if (lock.current || !ready || (candidate && (!backedUp || !confirmed))) return;
+    if (lock.current || !ready || (candidate && ((!fileInfo && !backedUp) || !confirmed))) return;
     lock.current = true; setBusy(true); setError('');
     let intended;
     try {
       // Re-read so edits in an old tab cannot slip past the reviewed import counts.
-      const latest = candidate ? local.current.read().data : initialFarmData();
-      if (candidate && JSON.stringify(latest) !== JSON.stringify(candidate)) { setCandidate(latest); setBackedUp(false); setConfirmed(false); throw new Error('Data pelayar berubah. Semak jumlah rekod dan muat turun sandaran baharu.'); }
+      const latest = fileInfo ? candidate : (candidate ? local.current.read().data : initialFarmData());
+      if (!fileInfo && candidate && JSON.stringify(latest) !== JSON.stringify(candidate)) { setCandidate(latest); setBackedUp(false); setConfirmed(false); throw new Error('Data pelayar berubah. Semak jumlah rekod dan muat turun sandaran baharu.'); }
       intended = { ...latest, plantings: latest.plantings.map(p => ({ ...p, rekod: p.rekod || {} })) };
       await store.transact(() => latest, { kind: 'import' }); onDone();
     } catch (error) {
@@ -79,19 +96,28 @@ function ImportFarm({ store, onDone, onSignOut }) {
   }
   return <Screen><h1 style={{ fontSize: 24, marginBottom: 12 }}>Sediakan Data Kebun</h1>
     <p style={{ marginBottom: 16 }}>Akaun ini belum mempunyai data kebun di server.</p>
-    {candidate ? <><p style={{ marginBottom: 16 }}>Ditemui dalam pelayar ini: <strong>{candidate.crops.length} tanaman, {candidate.plots.length} petak, {candidate.plantings.length} penanaman.</strong></p>
+    {fileInfo ? <><p style={{ marginBottom: 16 }}>Fail <strong>{fileInfo.fileName}</strong> ({fileInfo.source}): <strong>{candidate.crops.length} tanaman, {candidate.plots.length} petak, {candidate.plantings.length} penanaman.</strong></p>
+      {fileInfo.flagged?.length > 0 && <p style={{ color: '#E0A845', marginBottom: 16 }}>{fileInfo.flagged.length} rekod lama menyalahi peraturan baharu, contoh {fileInfo.flagged[0]}. Semua masih akan diimport; betulkan melalui menu Log selepas ini.</p>}
+      <label style={{ display: 'flex', gap: 10, margin: '20px 0' }}><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />Saya mahu mengimport isi fail ini ke akaun kebun yang sedang digunakan.</label></> : candidate ? <><p style={{ marginBottom: 16 }}>Ditemui dalam pelayar ini: <strong>{candidate.crops.length} tanaman, {candidate.plots.length} petak, {candidate.plantings.length} penanaman.</strong></p>
       <button disabled={busy} onClick={backup} style={button}>Muat Turun Sandaran Dahulu</button>
       <label style={{ display: 'flex', gap: 10, margin: '20px 0' }}><input type="checkbox" checked={confirmed} disabled={busy || !backedUp} onChange={e => setConfirmed(e.target.checked)} />Saya telah menyimpan sandaran dan mahu mengimport data ini ke akaun kebun yang sedang digunakan.</label>
-      <p style={{ color: '#A3AA91', marginBottom: 16 }}>Salinan asal dalam pelayar dikekalkan. Tutup tab versi lama selepas import.</p></> : ready && <p style={{ marginBottom: 16 }}>Tiada data lama dalam pelayar ini. Jika rekod berada pada peranti lain, buka app di situ untuk import dahulu. Pilih butang di bawah hanya untuk kebun baharu.</p>}
+      <p style={{ color: '#A3AA91', marginBottom: 16 }}>Salinan asal dalam pelayar dikekalkan. Tutup tab versi lama selepas import.</p></> : ready && <p style={{ marginBottom: 16 }}>Tiada data lama dalam pelayar ini. Kalau kau ada fail sandaran, pilih di bawah. Butang Mulakan Kebun Baharu untuk mula dari kosong.</p>}
     {error && <p role="alert" style={{ color: '#E0A845', marginBottom: 16 }}>{error}</p>}
     {cloudExists && <button onClick={onDone} style={button}>Semak Data Server</button>}
     {!ready && <button onClick={backup} style={button}>Muat Turun Data Asal</button>}
-    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 16 }}><button onClick={migrate} disabled={busy || cloudExists || !ready || (!!candidate && (!backedUp || !confirmed))} style={{ ...button, opacity: busy || !ready || (!!candidate && (!backedUp || !confirmed)) ? 0.5 : 1 }}>{busy ? 'Menyimpan…' : candidate ? 'Import ke Supabase' : 'Mulakan Kebun Baharu'}</button>
+    <div style={{ marginTop: 20, borderTop: '1px solid #3A4030', paddingTop: 16 }}>
+      <label htmlFor="restore-file" style={{ display: 'block', marginBottom: 8 }}>{candidate && !fileInfo ? 'Atau pulihkan dari fail sandaran (.json)' : 'Pilih fail sandaran (.json)'}</label>
+      <input id="restore-file" ref={filePicker} type="file" accept="application/json,.json" disabled={busy} onChange={pickFile} style={{ color: '#EDE8DB' }} />
+    </div>
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 16 }}><button onClick={migrate} disabled={busy || cloudExists || !ready || (!!candidate && ((!fileInfo && !backedUp) || !confirmed))} style={{ ...button, opacity: busy || !ready || (!!candidate && ((!fileInfo && !backedUp) || !confirmed)) ? 0.5 : 1 }}>{busy ? 'Menyimpan…' : candidate ? 'Import ke Supabase' : 'Mulakan Kebun Baharu'}</button>
       <button disabled={busy} onClick={onSignOut} style={{ ...button, background: '#3A4030', color: '#EDE8DB' }}>Tukar Akaun</button></div>
   </Screen>;
 }
-function CloudFarm({ client, userId, onSignOut }) {
-  const [store] = useState(() => createSupabaseStore({ getToken: async () => { const { data, error } = await client.auth.getSession(); if (error) throw error; return data.session?.access_token; } }));
+function CloudFarm({ client, config, userId, onSignOut }) {
+  const [store] = useState(() => createSupabaseStore({
+    url: config.url, publicKey: config.publicKey,
+    getToken: async () => { const { data, error } = await client.auth.getSession(); if (error) throw error; return data.session?.access_token; },
+  }));
   const [status, setStatus] = useState('loading'), [error, setError] = useState('');
   async function check() {
     setError('');
@@ -104,16 +130,20 @@ function CloudFarm({ client, userId, onSignOut }) {
   return <Screen><p role="status">{error || 'Membuka data kebun…'}</p>{error && <><button onClick={check} style={button}>Cuba Lagi</button><button onClick={onSignOut} style={{ ...button, marginLeft: 12 }}>Log Keluar</button></>}</Screen>;
 }
 export default function SupabaseGate() {
-  const [mode, setMode] = useState('loading'), [client, setClient] = useState(null), [session, setSession] = useState(null), [error, setError] = useState('');
+  const [mode, setMode] = useState('loading'), [client, setClient] = useState(null), [config, setConfig] = useState(null), [session, setSession] = useState(null), [error, setError] = useState('');
   useEffect(() => {
     let stopped = false, subscription;
     (async () => {
       try {
-        const response = await fetch('/api/farm-config', { cache: 'no-store' }); const config = await response.json();
-        if (!response.ok) throw new Error(config.error || 'Tetapan simpanan tidak dapat dibaca.');
+        // No server to ask: the public project URL and publishable key are inlined at build
+        // time. Both bundlers substitute these literal names, so keep them spelled out here.
+        const config = publicConfig({
+          NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+        });
         if (stopped) return;
+        setConfig(config);
         if (config.mode === 'local') { setMode('local'); return; }
-        if (config.mode !== 'supabase') throw new Error('Tetapan simpanan tidak dikenali.');
         const supabase = createClient(config.url, config.publicKey, { auth: { storageKey: 'ladang-alir-supabase-auth', detectSessionInUrl: false } });
         setClient(supabase);
         const { data, error } = await supabase.auth.getSession(); if (error) throw error;
@@ -130,6 +160,6 @@ export default function SupabaseGate() {
     setSession(null);
   }
   if (mode === 'local') return <LadangAlir />;
-  if (mode === 'supabase') return session ? <CloudFarm key={session.user.id} userId={session.user.id} client={client} onSignOut={signOut} /> : <SignIn client={client} onSignIn={setSession} />;
+  if (mode === 'supabase') return session ? <CloudFarm key={session.user.id} userId={session.user.id} client={client} config={config} onSignOut={signOut} /> : <SignIn client={client} onSignIn={setSession} />;
   return <Screen><p role="status">{error || 'Membuka Ladang Alir…'}</p>{error && <button style={button} onClick={() => window.location.reload()}>Cuba Lagi</button>}</Screen>;
 }
