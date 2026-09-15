@@ -6,6 +6,7 @@ import { createFarmStore, STORE_KEY, LEGACY_KEYS } from '../lib/farm-store';
 import { stableStringify } from '../lib/stable-json';
 import { createSupabaseStore } from '../lib/supabase-store';
 import { parseRestoreFile } from '../lib/restore';
+import { publicConfig } from '../lib/public-config';
 
 const panel = { background: '#262C20', border: '1px solid #3A4030', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540 };
 const input = { width: '100%', marginTop: 6, background: '#1C2118', border: '1px solid #5C6555', borderRadius: 8, padding: 12, color: '#EDE8DB', fontSize: 16 };
@@ -112,8 +113,11 @@ function ImportFarm({ store, onDone, onSignOut }) {
       <button disabled={busy} onClick={onSignOut} style={{ ...button, background: '#3A4030', color: '#EDE8DB' }}>Tukar Akaun</button></div>
   </Screen>;
 }
-function CloudFarm({ client, userId, onSignOut }) {
-  const [store] = useState(() => createSupabaseStore({ getToken: async () => { const { data, error } = await client.auth.getSession(); if (error) throw error; return data.session?.access_token; } }));
+function CloudFarm({ client, config, userId, onSignOut }) {
+  const [store] = useState(() => createSupabaseStore({
+    url: config.url, publicKey: config.publicKey,
+    getToken: async () => { const { data, error } = await client.auth.getSession(); if (error) throw error; return data.session?.access_token; },
+  }));
   const [status, setStatus] = useState('loading'), [error, setError] = useState('');
   async function check() {
     setError('');
@@ -126,16 +130,20 @@ function CloudFarm({ client, userId, onSignOut }) {
   return <Screen><p role="status">{error || 'Membuka data kebun…'}</p>{error && <><button onClick={check} style={button}>Cuba Lagi</button><button onClick={onSignOut} style={{ ...button, marginLeft: 12 }}>Log Keluar</button></>}</Screen>;
 }
 export default function SupabaseGate() {
-  const [mode, setMode] = useState('loading'), [client, setClient] = useState(null), [session, setSession] = useState(null), [error, setError] = useState('');
+  const [mode, setMode] = useState('loading'), [client, setClient] = useState(null), [config, setConfig] = useState(null), [session, setSession] = useState(null), [error, setError] = useState('');
   useEffect(() => {
     let stopped = false, subscription;
     (async () => {
       try {
-        const response = await fetch('/api/farm-config', { cache: 'no-store' }); const config = await response.json();
-        if (!response.ok) throw new Error(config.error || 'Tetapan simpanan tidak dapat dibaca.');
+        // No server to ask: the public project URL and publishable key are inlined at build
+        // time. Both bundlers substitute these literal names, so keep them spelled out here.
+        const config = publicConfig({
+          NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+        });
         if (stopped) return;
+        setConfig(config);
         if (config.mode === 'local') { setMode('local'); return; }
-        if (config.mode !== 'supabase') throw new Error('Tetapan simpanan tidak dikenali.');
         const supabase = createClient(config.url, config.publicKey, { auth: { storageKey: 'ladang-alir-supabase-auth', detectSessionInUrl: false } });
         setClient(supabase);
         const { data, error } = await supabase.auth.getSession(); if (error) throw error;
@@ -152,6 +160,6 @@ export default function SupabaseGate() {
     setSession(null);
   }
   if (mode === 'local') return <LadangAlir />;
-  if (mode === 'supabase') return session ? <CloudFarm key={session.user.id} userId={session.user.id} client={client} onSignOut={signOut} /> : <SignIn client={client} onSignIn={setSession} />;
+  if (mode === 'supabase') return session ? <CloudFarm key={session.user.id} userId={session.user.id} client={client} config={config} onSignOut={signOut} /> : <SignIn client={client} onSignIn={setSession} />;
   return <Screen><p role="status">{error || 'Membuka Ladang Alir…'}</p>{error && <button style={button} onClick={() => window.location.reload()}>Cuba Lagi</button>}</Screen>;
 }

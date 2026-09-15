@@ -21,38 +21,47 @@ recovery flow is added.
 
 ## 2. Runtime configuration
 
-Use `.env.example` for names. Configure these on the server, never in GitHub:
+The app is served as static files, so its configuration is public and baked in at
+build time. Use `.env.example` for names:
 
-- `SUPABASE_URL`: the project HTTPS URL.
-- `SUPABASE_PUBLISHABLE_KEY`: publishable key (or legacy anon key). This is public.
-- `SUPABASE_SECRET_KEY`: secret key (or legacy service_role key). Server ONLY.
-- `SUPABASE_STORAGE_ENABLED=true`: activate after the preceding steps are verified.
+- `NEXT_PUBLIC_SUPABASE_URL`: the project HTTPS URL.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: publishable key (or legacy anon key).
 
-For local development, create a private `.env.local` from `.env.example`.
-For Sites, use runtime environment settings; for VPS, use a private runtime env
-file. The server's `/api/farm-config` exposes only the project URL and publishable
-key. It never returns the secret key. A partially configured enabled integration
-fails closed instead of falling back to local writes.
+Both are public by design. There is no secret key in this build: nothing on the
+browser side can hold one, and `lib/public-config.js` refuses a secret or
+service-role key placed in the public setting. If both values are empty the app
+runs on on-device storage instead of Supabase.
+
+GitHub Pages deployment: set the two values as repository **variables** (Settings,
+Secrets and variables, Actions, Variables, not secrets), then push to the deploy
+branch or run the `Deploy Ladang Alir ke GitHub Pages` workflow by hand. The
+workflow runs the tests, builds `dist-pages/` and publishes it. For local
+development, put the same names in a private `.env.local`.
 
 ## 3. Data and permission model
 
-All requests require a Supabase access token validated using the Auth server.
-The API derives the owner ID from that verified response and never trusts owner
-or farm IDs sent by a browser. Authenticated/anonymous browser roles have no access
-to the six tables or privileged RPCs. RLS is enabled; only the server's secret-role
-connection can access them. Keep the secret key away from clients and logs.
+Every request carries the signed-in user's access token. The browser calls only
+`ladang_read_self()` and `ladang_commit_self(...)`, which are `SECURITY DEFINER`
+and derive the owner from `auth.uid()`. The owner is never a parameter, so a
+browser cannot ask for another farm. The six tables stay closed: no policies
+exist for `anon` or `authenticated`, both roles have their privileges revoked, and
+the functions are the only way in. The publishable key in the bundle is public;
+there is no secret key anywhere in the app.
 
 Tables separate farms, crops, plots, plantings and logs. Every child row has a
 farm ID. Composite foreign keys prevent cross-farm crop/plot references. One farm
 per owner is enforced for this version. Accounts do not share a farm automatically.
 Adding independent staff accounts later requires an explicit membership model.
 
-Writes validate records and overlap acknowledgement in the API, then lock the farm
-row and compare its revision inside one PostgreSQL transaction. Conflict retries
-re-read the latest data and repeat the user's mutation. Stale record edits are
-rejected. Request receipts prevent duplicates when a response is lost. Existing
-rows are updated only when their values/order changed. The current protocol has
-an explicit 2 MB document/import limit; larger farms require pagination/operations
+Writes validate the document in the app, then lock the farm row, compare the
+revision and check the stored payload of every planting inside one PostgreSQL
+transaction. Conflict retries re-read the latest data and repeat the user's
+mutation. Stale record edits are rejected, and an ordinary save cannot rewrite
+the dates, plot or crop of a planting that already exists: only a deliberate
+restore (`p_replace`) replaces the whole document, and it still needs the current
+revision. Request receipts prevent duplicates when a response is lost. Existing
+rows are updated only when their values/order changed. The protocol has an
+explicit 2 MB document/import limit; larger farms require pagination/operations
 rather than silently increasing the limit.
 
 ## 4. Activation and import
