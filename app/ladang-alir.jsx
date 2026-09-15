@@ -111,8 +111,10 @@ function buildConveyorSchedule(params) {
   return { ...result, batchId, items: result.items.map(item => ({ ...item, id: uid('plant'), batchId })) };
 }
 
-function buildTargetHarvestSchedule(params) {
-  const batchId = uid('target');
+function buildTargetHarvestSchedule(params, batchId = uid('target')) {
+  // The batch and item ids are minted once, when the preview is built. They are reused on
+  // every save attempt so a retry after an unconfirmed write cannot add a second copy of
+  // the same batch, and the duplicate-id check in appendSchedule can catch the retry.
   const result = buildProductionSchedule(params);
   return { ...result, batchId, items: result.items.map(item => ({ ...item, batchId, id: uid('plant') })) };
 }
@@ -648,16 +650,25 @@ function BasicScheduleView({ crops, plots, plantings, onSave, onDeleteBatch, not
     updateRow(row.id, { mode, date });
   }
   function calculate() { return buildBasicSchedule({ crops, plots, plantings, rows, planName }); }
+  // Mint the batch and item ids once, when the preview is built, then reuse them on every
+  // save attempt. A retry after an unconfirmed write therefore reuses the same ids and is
+  // rejected by appendSchedule instead of saving the whole batch a second time.
+  function buildPreview() {
+    const batchId = uid('basic');
+    const result = calculate();
+    return { ...result, batchId, items: result.items.map(item => ({ ...item, batchId, id: uid('plant') })) };
+  }
   async function confirm() {
     if (savingRef.current || !preview) return;
-    const result = calculate();
+    const fresh = calculate();
+    // Revalidate dates, references and overlaps against current data, but keep the ids.
+    const result = { ...preview, errors: fresh.errors, warnings: fresh.warnings, saveError: undefined, items: preview.items };
     setPreview(result);
     if (!canSaveSchedule(result, preview.warnings, overlapConfirmed)) { setOverlapConfirmed(false); return; }
     savingRef.current = true;
     setSaving(true);
     try {
-      const batchId = uid('basic');
-      const items = result.items.map(item => ({ ...item, batchId, id: uid('plant'), pertindihanDisahkan: result.warnings.length > 0 && overlapConfirmed }));
+      const items = result.items.map(item => ({ ...item, pertindihanDisahkan: result.warnings.length > 0 && overlapConfirmed }));
       const saved = await onSave(items, { warnings: result.warnings, confirmed: overlapConfirmed, crops });
       if (!saved.ok) {
         setOverlapConfirmed(false);
@@ -692,7 +703,7 @@ function BasicScheduleView({ crops, plots, plantings, onSave, onDeleteBatch, not
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Rancang satu pusingan penanaman. Pilih tanaman, petak dan tarikh bagi setiap baris.</p></div>
       {!showForm && <SecondaryButton onClick={() => setShowForm(true)}><Plus size={15} /> Jadual Baharu</SecondaryButton>}
     </div>
-    {showForm && <form noValidate onSubmit={e => { e.preventDefault(); setOverlapConfirmed(false); setPreview(calculate()); }} className="rounded-xl p-4 flex flex-col gap-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+    {showForm && <form noValidate onSubmit={e => { e.preventDefault(); setOverlapConfirmed(false); setPreview(buildPreview()); }} className="rounded-xl p-4 flex flex-col gap-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
       <fieldset disabled={saving} className="flex flex-col gap-4 min-w-0">
         <Field label="Nama jadual (pilihan)"><input className={inputClass} style={inputStyle} maxLength={100} value={planName} placeholder="Contoh: Penanaman minggu depan" onChange={e => { setPlanName(e.target.value); setPreview(null); }} /></Field>
         {rows.map((row, index) => {
@@ -876,8 +887,11 @@ function TargetHarvestView({ crops, plots, plantings, onCommitBatch, onDeleteBat
 
   async function handleConfirm() {
     if (savingRef.current || !preview || preview.errors.length > 0 || preview.items.length === 0) return;
-    const result = buildTargetHarvestSchedule({ crops, plots, plantings, rows: preview.rows, targetDate: preview.targetDate, windowDays: preview.windowDays, planName: preview.planName });
-    setPreview({ ...preview, ...result });
+    // Revalidate against current data, but keep the preview's batch and item ids so a retry
+    // after an unconfirmed save cannot add a second copy of this plan.
+    const fresh = buildTargetHarvestSchedule({ crops, plots, plantings, rows: preview.rows, targetDate: preview.targetDate, windowDays: preview.windowDays, planName: preview.planName }, preview.batchId);
+    const result = { ...preview, ...fresh, batchId: preview.batchId, items: preview.items };
+    setPreview({ ...result, saveError: undefined });
     if (!canSaveSchedule(result, preview.warnings, overlapConfirmed)) { setOverlapConfirmed(false); return; }
     savingRef.current = true;
     setSaving(true);
@@ -885,7 +899,7 @@ function TargetHarvestView({ crops, plots, plantings, onCommitBatch, onDeleteBat
       const saved = await onCommitBatch(result.items.map(item => ({ ...item, pertindihanDisahkan: result.warnings.length > 0 && overlapConfirmed })), { warnings: result.warnings, confirmed: overlapConfirmed, crops });
       if (!saved.ok) {
         setOverlapConfirmed(false);
-        setPreview({ ...preview, ...result, saveError: saved.error });
+        setPreview({ ...result, saveError: saved.error });
         return;
       }
       notify(`Pelan "${preview.planName}" disimpan: ${result.items.length} penanaman dalam ${new Set(result.items.map(item => item.plotId)).size} petak.`);
