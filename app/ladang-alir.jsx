@@ -10,7 +10,7 @@ import { parseRestoreFile } from '../lib/restore';
 import {
   LayoutDashboard, Sprout, LayoutGrid, Repeat, ClipboardList, BarChart3,
   Plus, Pencil, Trash2, X, Check, Droplets, Wheat, AlertTriangle,
-  Wallet, TrendingUp, Leaf, Package, Loader2, CalendarDays,
+  Wallet, TrendingUp, Leaf, Package, Loader2, CalendarDays, Upload,
 } from 'lucide-react';
 
 /* ============================================================ */
@@ -1900,6 +1900,10 @@ export default function App({ remoteStore = null, onSignOut }) {
               <span className="text-xs" style={{ color: tab === item.key ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{item.mobileLabel || item.label.split(' ')[0]}</span>
             </button>
           ))}
+          <button onClick={() => setRestoreOpen(true)} className="flex shrink-0 flex-col items-center gap-0.5 px-2 py-1">
+            <Upload size={18} style={{ color: 'var(--text-secondary)' }} />
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Pulihkan</span>
+          </button>
         </nav>
 
         {restoreOpen && <RestoreModal current={{ crops, plots, plantings }} onBackup={downloadRecovery} onRestore={handleRestoreFile} onClose={() => setRestoreOpen(false)} />}
